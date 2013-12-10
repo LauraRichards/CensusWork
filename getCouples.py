@@ -60,17 +60,34 @@ except IOError:
 censusRecords_71 = dict()   
 censusRecords_81 = dict() 
 
+married71HIDcount = dict() # HID -> # married people
+married81HIDcount = dict()
 
 for line in census71:
     line = line.strip()
     el=line.split(",")
     censusRecords_71[el[0]] = line
     
+    # keep track of how many married people appear in each household
+    if(el[7] == "1" and el[0] in id71_to_HID):
+        if(id71_to_HID[el[0]] in married71HIDcount):
+            married71HIDcount[id71_to_HID[el[0]]] = married71HIDcount[id71_to_HID[el[0]]] + 1
+        else:
+            married71HIDcount[id71_to_HID[el[0]]] = 1
+    
+    
     
 for line in census81:
     line = line.strip()
     el=line.split(",")
     censusRecords_81[el[0]] = line
+    
+    # keep track of how many married people appear in each household
+    if(el[7] == "1" and el[0] in id81_to_HID):
+        if(id81_to_HID[el[0]] in married81HIDcount):
+            married81HIDcount[id81_to_HID[el[0]]] = married81HIDcount[id81_to_HID[el[0]]] + 1
+        else:
+            married81HIDcount[id81_to_HID[el[0]]] = 1
 
 census71.close()
 census81.close()
@@ -88,7 +105,7 @@ try:
 except IOError:
     print 'Can\'t open file for reading.'
     sys.exit(0)
-
+    
 coupleHID_71 = defaultdict(list) # set up as 71HID -> [(71ID, 81ID, Gender), ...]
     
 
@@ -109,60 +126,58 @@ for line in file_IN:
         if(el[0] in id71_to_HID and el[1] in id81_to_HID):
         
             household_71 = id71_to_HID[el[0]]
-            coupleHID_71[household_71].append(el[0]+","+el[1]+","+el_71Rec[4])  # put the couple in it's repective 71 household: 71ID, 81ID, Gender (1 = male, 0 = female)
+            coupleHID_71[household_71].append(el[0]+","+el[1]+","+el_71Rec[4]+","+el_71Rec[1] +","+el_81Rec[1])  # put the couple in it's repective 71 household: 71ID, 81ID, Gender (1 = male, 0 = female), 71 Last Name
 
-count_sameGend = 0
-count_diff81H = 0
+diffLastName = 0
+sameGender = 0
+notOnly2 = 0
+diff81HID = 0
 
-count_singleM = 0
-count_moreM = dict()
-    
+count_total_size2_H = 0
          
 for hid_71 in coupleHID_71:
 
-    if( len(coupleHID_71[hid_71]) == 2):
+    if( len(coupleHID_71[hid_71]) == 2): # only two 1:1 married links in the 1871 household
+       
+        count_total_size2_H += 1
             
         # store the break down of each record in the household
         A_Record = (coupleHID_71[hid_71][0]).split(",")
         B_Record = (coupleHID_71[hid_71][1]).split(",")
         
-        # are the genders opposite?
-        if( A_Record[2] != B_Record[2] ):
+        # are they in the same 81 HID?
+        if( id81_to_HID[ A_Record[1] ] == id81_to_HID[ B_Record[1] ]):
         
-            # are the records in the same 81 HID?
-            if( id81_to_HID[ A_Record[1] ] == id81_to_HID[ B_Record[1] ] ):
+            # are these records the only married ones in the households?
+            if( married71HIDcount[id71_to_HID[ A_Record[0]]] == 2 and married81HIDcount[ id81_to_HID[ A_Record[1]] ] == 2):
             
-                # writes out male71 info : male81 info || female71 info : female81 info
-                if( A_Record[2] == "0"):
-                    fileLinks.write(censusRecords_71[B_Record[0]]+":"+censusRecords_81[B_Record[1]]+"||"+censusRecords_71[A_Record[0]]+":"+censusRecords_81[A_Record[1]]+"\n")
+                # are the genders opposite?
+                if( A_Record[2] != B_Record[2] ):
+                
+                    # does the male and female in the 71 household have the EXACT same last name?
+                    if(A_Record[3] == B_Record[3] and A_Record[4] == B_Record[4]):
+                    
+                        # writes out male71 info : male81 info || female71 info : female81 info
+                        if( A_Record[2] == "0"):
+                            fileLinks.write(censusRecords_71[B_Record[0]]+":"+censusRecords_81[B_Record[1]]+"||"+censusRecords_71[A_Record[0]]+":"+censusRecords_81[A_Record[1]]+"\n")
+                        else:
+                            fileLinks.write(censusRecords_71[A_Record[0]]+":"+censusRecords_81[A_Record[1]]+"||"+censusRecords_71[B_Record[0]]+":"+censusRecords_81[B_Record[1]]+"\n") 
+                    else:
+                        diffLastName += 1
                 else:
-                    fileLinks.write(censusRecords_71[A_Record[0]]+":"+censusRecords_81[A_Record[1]]+"||"+censusRecords_71[B_Record[0]]+":"+censusRecords_81[B_Record[1]]+"\n")
+                    sameGender += 1
             else:
-                count_diff81H += 1   
+                notOnly2 +=1
         else:
-            count_sameGend += 1
-              
-    elif( len(coupleHID_71[hid_71]) == 1):
-        count_singleM += 1
-    else:
-        # keep track of how many households have 3+ couples in them ( key = # couples  item = # households)     
-        if(len(coupleHID_71[hid_71]) in count_moreM):
-            count_moreM[ len(coupleHID_71[hid_71]) ] += 1
-        else:
-            count_moreM[ len(coupleHID_71[hid_71]) ] = 1
+            diff81HID += 1
         
 
             
 
-# write out the counting for the households that did not have exactly 2 married records in the house, or have 2 married records but they are wrong (ex. Both M, or not in the same house)     
-fileLinks.write("2M BUT GenderSame: "+str(count_sameGend)+"\n")
-fileLinks.write("2M-GDiff BUT 81HDiff: "+str(count_diff81H)+"\n")
-fileLinks.write("1M: "+str(count_singleM)+"\n")
-
-fileLinks.write("xM -> #households: ")
-for num in count_moreM:
-    fileLinks.write(str(num)+","+str(count_moreM[num])+"\n")
-
-      
+fileLinks.write("Households with 2 1:1 married links: "+str(count_total_size2_H)+"\n")
+fileLinks.write("81 HID is different: "+str(diff81HID)+"\n")
+fileLinks.write("Had non-linked married records: "+str(notOnly2)+"\n")
+fileLinks.write("Same Gender: "+str(sameGender)+"\n")
+fileLinks.write("Different 1871 Last Name: "+str(diffLastName)+"\n")
 
 
